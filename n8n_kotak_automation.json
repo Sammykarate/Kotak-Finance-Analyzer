@@ -1,0 +1,322 @@
+{
+  "name": "Kotak Transactions Analyzer",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2592,
+        -144
+      ],
+      "id": "93deae47-11cf-46e9-94af-b37018d735c0",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "q": "label: Kotak Bank"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2352,
+        -64
+      ],
+      "id": "efb50c35-295a-4b06-8be6-75b590f04301",
+      "name": "Get many messages",
+      "webhookId": "3bdcc05d-986c-4d13-8bf9-7a3573891e61",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Put your API",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2224,
+        -256
+      ],
+      "id": "74b59429-66b6-4c77-b29e-c2e8e836e181",
+      "name": "Get a message",
+      "webhookId": "7f7e55a7-3d4f-40f2-a6b1-8246150966a6",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Put your API",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cleanOutput = [];\n\nfor (const item of $input.all()) {\n  const text = item.json.text || item.json.textAsHtml || item.json.snippet || '';\n\n  // Extract fields\n  const amountMatch = text.match(/INR\\s*([\\d,]+(?:\\.\\d{2})?)/i) || text.match(/(?:Rs\\.?|₹)\\s*([\\d,]+(?:\\.\\d{2})?)/i);\n  const recipientMatch = text.match(/towards\\s+([A-Za-z0-9\\s]+?)\\s+through/i) || text.match(/(?:Paid to|To)\\b\\s*[:\\-]?\\s*([A-Za-z0-9\\s]+)/i);\n  const upiIdMatch = text.match(/([a-zA-Z0-9.\\-_]+@[a-zA-Z0-9]+)/);\n  const refMatch = text.match(/(?:UPI Reference Number|Ref No|Txn ID)\\b\\s*[:\\-]?\\s*(\\d+)/i);\n  \n  // Extract and parse date (Format: YYYY-MM-DD)\n  const dateMatch = text.match(/Date:\\s*(\\d{2}\\/\\d{2}\\/\\d{4})/i) || text.match(/(\\d{2}-\\d{2}-\\d{4})/);\n  let formattedDate = new Date().toISOString().split('T')[0]; // Default to today\n  \n  if (dateMatch) {\n    const parts = dateMatch[1].split(/[\\/-]/);\n    if (parts.length === 3) {\n      // Convert DD/MM/YYYY to YYYY-MM-DD\n      formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;\n    }\n  }\n\n  // Map directly to your MySQL table columns\n  cleanOutput.push({\n    json: {\n      transaction_date: formattedDate,\n      upi_ref_number: refMatch ? refMatch[1] : 'N/A',\n      recipient_name: recipientMatch ? recipientMatch[1].trim() : 'Unknown',\n      recipient_upi_id: upiIdMatch ? upiIdMatch[1] : 'N/A',\n      amount: amountMatch ? parseFloat(amountMatch[1].replace(',', '')) : 0,\n      payment_source: 'Kotak811 App'\n    }\n  });\n}\n\nreturn cleanOutput;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2016,
+        -144
+      ],
+      "id": "f1d9940f-ef3b-4fe2-91b4-b98ff034d4e6",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "upi_transactions",
+          "mode": "list",
+          "cachedResultName": "upi_transactions"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "upi_ref_number",
+        "valueToMatchOn": "={{ $('Code in JavaScript').item.json.upi_ref_number }}\n\n",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "transaction_date",
+              "value": "={{ $('Code in JavaScript').item.json.transaction_date }}"
+            },
+            {
+              "column": "recipient_name",
+              "value": "={{ $('Code in JavaScript').item.json.recipient_name }}"
+            },
+            {
+              "column": "recipient_upi_id",
+              "value": "={{ $('Code in JavaScript').item.json.recipient_upi_id }}"
+            },
+            {
+              "column": "amount",
+              "value": "={{ $('Code in JavaScript').item.json.amount }}"
+            },
+            {
+              "column": "payment_source",
+              "value": "={{ $('Code in JavaScript').item.json.payment_source }}"
+            },
+            {
+              "column": "category",
+              "value": "={{ JSON.parse($('Basic LLM Chain').item.json.text).category }}"
+            },
+            {
+              "column": "ai_reasoning",
+              "value": "={{ JSON.parse($('Basic LLM Chain').item.json.text).ai_reasoning }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1296,
+        -304
+      ],
+      "id": "35273262-1707-401f-8d2c-ff68fb3508f2",
+      "name": "Insert or update rows in a table",
+      "credentials": {
+        "mySql": {
+          "id": "Put your API",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a personal finance transaction classification system.\n\nClassify the UPI transaction into EXACTLY ONE of these categories:\n\n1. Groceries\n2. Food & Dining\n3. E-commerce\n4. Person-to-Person\n5. Investments\n6. Utilities\n7. Other\n\nCATEGORY RULES:\n\nGroceries:\nUse for supermarkets, grocery stores, food retailers, and daily household grocery purchases.\nExamples: Spencer's Retail, BigBasket, Blinkit, Zepto when the transaction is clearly a grocery purchase.\n\nFood & Dining:\nUse for restaurants, cafes, food delivery, fast food, bakeries, and dining-related merchants.\nExamples: Swiggy, Zomato, restaurants, cafes.\n\nE-commerce:\nUse for general online shopping and purchases of non-grocery products.\nExamples: Amazon, Flipkart, Myntra, online electronics/fashion retailers.\n\nPerson-to-Person:\nUse when money is transferred to an identifiable individual rather than a business/merchant.\nExamples: payments to friends, family, individuals.\n\nInvestments:\nUse for mutual funds, stocks, brokers, SIPs, securities, investment platforms, or other clearly identifiable investment transactions.\n\nUtilities:\nUse for electricity, water, gas, telecommunications, internet, mobile recharge, insurance premiums, and similar recurring household/service bills.\n\nOther:\nUse when the transaction cannot reasonably be classified into any of the above categories.\n\nIMPORTANT RULES:\n\n- Use the recipient name AND UPI ID as evidence.\n- Prefer merchant identity over assumptions based only on the transaction amount.\n- Do not classify a transaction as Investments merely because the recipient appears financial.\n- Do not classify a transaction as E-commerce merely because the payment was made online.\n- If a merchant clearly represents groceries, classify it as Groceries even if the purchase occurred through an online platform.\n- If the recipient is clearly an individual, classify it as Person-to-Person.\n- If evidence is insufficient, use Other rather than guessing.\n- Never invent information about the merchant.\n\nTransaction:\n\nRecipient: {{ $json.recipient_name }}\nUPI ID: {{ $json.recipient_upi_id }}\nAmount: ₹{{ $json.amount }}\n\nReturn ONLY valid JSON:\n\n{\n  \"category\": \"one of the seven categories\",\n  \"ai_reasoning\": \"brief explanation based only on the available merchant and UPI information\"\n}",
+        "batching": {
+          "batchSize": 1,
+          "delayBetweenBatches": 3000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -1600,
+        -128
+      ],
+      "id": "b8afa8aa-6dd3-48cb-b094-2dd756781d06",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        112
+      ],
+      "id": "affaf9bf-37c4-4440-bc21-851e1d7b9f0c",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "Put your API",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1808,
+        -304
+      ],
+      "id": "d46570c5-45fa-49a7-ab2c-107870720205",
+      "name": "Loop Over Items",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "amount": 6
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1136,
+        -128
+      ],
+      "id": "e0e59dac-4373-44e2-933d-cb419ac6028c",
+      "name": "Wait",
+      "webhookId": "aebe4c2a-6ad4-4f4e-afb0-6d980ff9aa53"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert or update rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Insert or update rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "992c4538-ffbe-4790-ba03-379ca4cbdbfc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "Put your API"
+  },
+  "nodeGroups": [],
+  "id": "M3sPiafE3uFpfEhP",
+  "tags": []
+}
